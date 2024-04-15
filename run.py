@@ -11,7 +11,7 @@ import html
 import re  # 정규 표현식 사용을 위해 추가
 
 load_dotenv()  # 환경 변수 파일 로딩
-TOKEN = os.getenv('DISCORD_TOKEN')  # .env 파일에서 토큰 읽기
+TOKEN = os.getenv('DISCORD_TOKEN')  # .env 파일에서 디스코드 토큰 읽기
 
 intents = discord.Intents.default()
 intents.messages = True
@@ -35,10 +35,7 @@ def check_components_issues(data, days_back, tz):
     incidents = data["incidents"]
 
     for incident in incidents:
-        try:
-            incident_date = datetime.datetime.fromisoformat(incident["created_at"]).astimezone(tz)
-        except ValueError:
-            incident_date = datetime.datetime.strptime(incident["created_at"], "%Y-%m-%dT%H:%M:%S.%f%z").astimezone(tz)
+        incident_date = datetime.datetime.fromisoformat(incident["created_at"]).astimezone(tz)
         
         if (today - incident_date).days <= days_back:
             for update in incident.get("incident_updates", []):
@@ -66,10 +63,11 @@ def split_messages(message, limit=2000):
 async def isgptup(ctx, service=None, days: int = 1):
     message = await ctx.send("Loading...")
     try:
-        if service is None or service.isdigit() or service in ['all', 'API', 'ChatGPT', 'Labs', 'Playground', 'helpme', 'issue']:
+        # service가 None이거나 all일 때 동일하게 처리하도록 변경
+        if service is None or service == 'all' or service.isdigit() or service in ['API', 'ChatGPT', 'Labs', 'Playground', 'helpme', 'issue']:
             if service and service.isdigit():
                 days = int(service)
-                service = None
+                service = 'all'  # 숫자만 들어오면 all로 처리
             if days < 1 or days > 90:
                 await message.edit(content="Please enter a valid number of days between 1 and 90.")
                 return
@@ -93,43 +91,16 @@ async def isgptup(ctx, service=None, days: int = 1):
                         full_translation += f"Date: {date}, Issue: {issue}\n"
                 else:
                     response_text += "  > No issues reported.\n"
-            elif service == 'all':
+            else:  # all을 처리하는 로직을 기본으로 사용
                 response_text += f"**All Services Status in the last {days} days:**\n"
-                for service, issues in problems.items():
-                    response_text += f"\n> **Service: {service}**\n"
+                for service_name, issues in problems.items():
+                    response_text += f"\n> **Service: {service_name}**\n"
                     if issues:
                         for date, issue in issues:
                             response_text += f"  > `Date: {date}, Issue: {issue}`\n"
                             full_translation += f"Date: {date}, Issue: {issue}\n"
                     else:
                         response_text += "  > No issues reported.\n"
-            elif service == 'helpme':
-                response_text = ("Use the following commands to check the system status:\n"
-                                 "> `!isgptup` - Check the current system status.\n"
-                                 "> `!isgptup all` - Check the status of all services within the last day.\n"
-                                 "> `!isgptup all N` - Check the status of all services within the last N days.\n"
-                                 "> `!isgptup {API/ChatGPT/Labs/Playground}` - Check the status of a specific service within the last day.\n"
-                                 "> `!isgptup {API/ChatGPT/Labs/Playground} N` - Check the status of a specific service within the last N days.\n"
-                                 "> `!isgptup helpme` - Show this help message.")
-            elif service == 'issue':
-                if days < 1 or days > 90:
-                    await ctx.send("**Please enter a valid number of days between 1 and 90.**")
-                    return
-                
-                feed = feedparser.parse("https://status.openai.com/history.rss")
-                today = datetime.datetime.now(pytz.utc)
-                response_text = "**Recent Issues:**\n"
-
-                for entry in feed.entries:
-                    pub_date = datetime.datetime.strptime(entry.published, "%a, %d %b %Y %H:%M:%S %z")
-                    if (today - pub_date).days <= days:
-                        response_text += f"\n> **{entry.title}**\n"
-                        response_text += f"  > `{clean_html(entry.description)}`\n"  # HTML 태그와 엔티티 정리
-                        response_text += f"  > [More Info]({entry.link})\n"
-
-                if len(response_text) == len("> **Recent Issues:**\n"):
-                    response_text += "> No recent issues reported.\n"
-
             # 메시지를 분할하여 전송
             for part in split_messages(response_text):
                 await ctx.send(part)
